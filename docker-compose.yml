@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: metachat
+      POSTGRES_PASSWORD: metachat_secret
+      POSTGRES_DB: metachat
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metachat"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    image: migrate/migrate:v4.17.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations
+    command: [
+      "-path", "/migrations",
+      "-database", "postgres://metachat:metachat_secret@postgres:5432/metachat?sslmode=disable",
+      "up"
+    ]
+
+  auth:
+    build:
+      context: .
+      dockerfile: Dockerfile.auth
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: metachat
+      POSTGRES_PASSWORD: metachat_secret
+      POSTGRES_DB: metachat
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      JWT_SECRET: super-secret-jwt-key-change-in-prod
+      AUTH_PORT: "50051"
+    ports:
+      - "50051:50051"
+
+  messaging:
+    build:
+      context: .
+      dockerfile: Dockerfile.messaging
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: metachat
+      POSTGRES_PASSWORD: metachat_secret
+      POSTGRES_DB: metachat
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      MESSAGING_PORT: "50052"
+    ports:
+      - "50052:50052"
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    depends_on:
+      - auth
+      - messaging
+    environment:
+      GATEWAY_PORT: "8080"
+      AUTH_SERVICE_URL: http://auth:50051
+      MESSAGING_SERVICE_URL: http://messaging:50052
+      JWT_SECRET: super-secret-jwt-key-change-in-prod
+      RATE_LIMIT_RPS: "10"
+      RATE_LIMIT_BURST: "20"
+    ports:
+      - "8080:8080"
+
+volumes:
+  postgres_data:

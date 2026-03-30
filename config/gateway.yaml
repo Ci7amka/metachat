@@ -1,0 +1,15 @@
+server:
+  port: 8080
+
+auth_service:
+  url: http://auth:50051
+
+messaging_service:
+  url: http://messaging:50052
+
+jwt:
+  secret: ${JWT_SECRET}
+
+rate_limit:
+  rps: 10
+  burst: 20
