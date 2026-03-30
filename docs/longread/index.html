@@ -1,0 +1,1080 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MetaChat — System Design</title>
+<link href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@400,500,700,800&f[]=satoshi@300,400,500,700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d1117;--surface:#161b22;--surface2:#1c2128;--surface3:#21262d;
+  --border:#30363d;--border-glow:rgba(78,205,196,.15);
+  --teal:#4ecdc4;--teal-dim:#2a9d8f;--teal-glow:rgba(78,205,196,.08);
+  --amber:#f0b429;--green:#3fb950;--red:#f85149;--blue:#58a6ff;--purple:#a371f7;
+  --text:#e6edf3;--text2:#8b949e;--text3:#6e7681;
+  --font-display:'Cabinet Grotesk','Inter',sans-serif;
+  --font-body:'Satoshi','Inter',sans-serif;
+  --font-mono:'JetBrains Mono',monospace;
+  --max-w:860px;--wide:1100px;
+}
+html{scroll-behavior:smooth;scroll-padding-top:80px}
+body{font-family:var(--font-body);font-size:16px;line-height:1.7;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}
+
+/* Progress bar */
+#progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--teal),var(--blue));width:0;z-index:1000;transition:width .1s}
+
+/* NAV */
+nav{position:fixed;top:0;left:0;right:0;height:60px;background:rgba(13,17,23,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);z-index:99;display:flex;align-items:center;padding:0 24px}
+nav .logo{font-family:var(--font-display);font-weight:800;font-size:18px;color:var(--teal);display:flex;align-items:center;gap:8px}
+nav .logo svg{width:28px;height:28px}
+nav .hamburger{display:none;background:none;border:none;color:var(--text);cursor:pointer;padding:8px;margin-left:auto}
+
+/* TOC Sidebar */
+.toc{position:fixed;left:0;top:60px;bottom:0;width:260px;padding:24px 16px;overflow-y:auto;border-right:1px solid var(--border);background:var(--bg);z-index:50}
+.toc a{display:block;padding:6px 12px;font-size:13px;color:var(--text2);text-decoration:none;border-left:2px solid transparent;border-radius:0 4px 4px 0;transition:all .2s;line-height:1.4;margin-bottom:2px}
+.toc a:hover{color:var(--text);background:var(--teal-glow)}
+.toc a.active{color:var(--teal);border-left-color:var(--teal);background:var(--teal-glow)}
+
+/* Main */
+main{margin-left:260px;padding:80px 40px 120px}
+.container{max-width:var(--max-w);margin:0 auto}
+
+/* Hero */
+.hero{text-align:center;padding:80px 0 60px;border-bottom:1px solid var(--border)}
+.hero-logo{width:80px;height:80px;margin:0 auto 24px;display:flex;align-items:center;justify-content:center;border-radius:20px;background:linear-gradient(135deg,var(--teal-glow),rgba(88,166,255,.08));border:1px solid var(--border)}
+.hero h1{font-family:var(--font-display);font-size:clamp(2rem,4vw,3.2rem);font-weight:800;color:var(--text);margin-bottom:12px;line-height:1.15}
+.hero h1 span{color:var(--teal)}
+.hero .sub{font-size:18px;color:var(--text2);max-width:600px;margin:0 auto 24px;line-height:1.6}
+.hero .badge{display:inline-block;padding:4px 12px;border-radius:20px;border:1px solid var(--border);color:var(--text2);font-size:13px;font-family:var(--font-mono)}
+
+/* Sections */
+section{padding:64px 0;border-bottom:1px solid var(--border)}
+section:last-child{border-bottom:none}
+.section-header{display:flex;align-items:baseline;gap:16px;margin-bottom:32px}
+.section-num{font-family:var(--font-display);font-size:clamp(2.5rem,4vw,3.5rem);font-weight:800;color:var(--teal);opacity:.35;line-height:1;min-width:60px}
+.section-title{font-family:var(--font-display);font-size:clamp(1.4rem,2.5vw,2rem);font-weight:700;color:var(--text);line-height:1.2}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;margin:24px 0}
+.card.glow{border-color:rgba(78,205,196,.2);box-shadow:0 0 30px var(--teal-glow)}
+
+/* Terminal blocks */
+.terminal{background:var(--surface2);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin:24px 0}
+.terminal-bar{background:var(--surface3);padding:8px 14px;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--border)}
+.terminal-dot{width:10px;height:10px;border-radius:50%}
+.terminal-dot.r{background:#f85149}.terminal-dot.y{background:#f0b429}.terminal-dot.g{background:#3fb950}
+.terminal-title{margin-left:8px;font-size:12px;color:var(--text3);font-family:var(--font-mono)}
+.terminal pre{padding:20px;overflow-x:auto;font-family:var(--font-mono);font-size:13px;line-height:1.7;color:var(--text2);margin:0}
+
+/* Tables */
+.table-wrap{overflow-x:auto;margin:24px 0;border-radius:10px;border:1px solid var(--border)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+thead{background:var(--surface3)}
+thead th{padding:12px 16px;text-align:left;font-weight:600;color:var(--teal);font-size:13px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+tbody td{padding:10px 16px;border-bottom:1px solid rgba(48,54,61,.5);color:var(--text2)}
+tbody tr:hover{background:var(--teal-glow)}
+tbody tr:last-child td{border-bottom:none}
+td strong{color:var(--text)}
+
+/* Lists */
+.check-list{list-style:none;padding:0}
+.check-list li{padding:6px 0 6px 28px;position:relative;color:var(--text2);font-size:15px}
+.check-list li::before{position:absolute;left:0;font-size:14px}
+.check-list li.yes::before{content:'✅'}
+.check-list li.no::before{content:'❌'}
+
+/* Tech stack badges */
+.badges{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}
+.badge{padding:5px 14px;border-radius:6px;font-size:13px;font-weight:500;border:1px solid var(--border);color:var(--text2);background:var(--surface)}
+.badge.teal{border-color:var(--teal-dim);color:var(--teal);background:rgba(78,205,196,.06)}
+.badge.blue{border-color:rgba(88,166,255,.3);color:var(--blue);background:rgba(88,166,255,.06)}
+.badge.amber{border-color:rgba(240,180,41,.3);color:var(--amber);background:rgba(240,180,41,.06)}
+.badge.purple{border-color:rgba(163,113,247,.3);color:var(--purple);background:rgba(163,113,247,.06)}
+.badge.green{border-color:rgba(63,185,80,.3);color:var(--green);background:rgba(63,185,80,.06)}
+
+/* Calculations */
+.calc{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--amber);border-radius:0 10px 10px 0;padding:20px 24px;margin:24px 0;font-family:var(--font-mono);font-size:14px;color:var(--text2);line-height:1.8}
+.calc .result{color:var(--teal);font-weight:700;font-size:16px}
+
+/* Quote */
+blockquote{border-left:3px solid var(--teal);padding:16px 24px;margin:24px 0;background:var(--teal-glow);border-radius:0 8px 8px 0;color:var(--text);font-style:italic;font-size:15px}
+blockquote strong{color:var(--teal)}
+
+/* Timeline */
+.timeline{display:flex;gap:0;margin:32px 0;position:relative}
+.timeline::before{content:'';position:absolute;top:24px;left:0;right:0;height:2px;background:var(--border)}
+.tl-phase{flex:1;position:relative;padding:48px 16px 0;text-align:center}
+.tl-dot{width:14px;height:14px;border-radius:50%;background:var(--surface);border:2px solid var(--teal);position:absolute;top:18px;left:50%;transform:translateX(-50%);z-index:1}
+.tl-phase.active .tl-dot{background:var(--teal)}
+.tl-phase h4{font-family:var(--font-display);font-weight:700;font-size:16px;color:var(--text);margin-bottom:8px}
+.tl-phase p{font-size:13px;color:var(--text2);line-height:1.5}
+.tl-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-top:12px;text-align:left}
+.tl-card.done{border-color:var(--green)}
+.tl-card ul{padding-left:16px;margin:8px 0 0}
+.tl-card li{font-size:12px;color:var(--text2);margin-bottom:3px}
+
+/* Cost bars */
+.cost-bar-wrap{margin:4px 0}
+.cost-bar{height:6px;border-radius:3px;background:linear-gradient(90deg,var(--teal),var(--blue));transition:width .5s}
+.cost-label{font-size:12px;color:var(--text3);margin-top:2px}
+
+/* Sub headings */
+h3{font-family:var(--font-display);font-weight:700;font-size:18px;color:var(--text);margin:32px 0 12px}
+h3::before{content:'';display:inline-block;width:4px;height:18px;background:var(--teal);border-radius:2px;margin-right:10px;vertical-align:middle}
+h4{font-family:var(--font-display);font-weight:600;font-size:15px;color:var(--text);margin:20px 0 8px}
+
+p{margin:8px 0;color:var(--text2);line-height:1.7;max-width:72ch}
+p strong{color:var(--text)}
+a{color:var(--teal);text-decoration:none}
+a:hover{text-decoration:underline}
+
+code{font-family:var(--font-mono);font-size:13px;background:var(--surface2);padding:2px 6px;border-radius:4px;color:var(--teal)}
+
+/* SQL */
+.sql pre{color:#e6edf3}
+.sql .kw{color:#ff7b72}.sql .fn{color:#d2a8ff}.sql .str{color:#a5d6ff}.sql .cm{color:#6e7681;font-style:italic}
+
+/* Golden rule */
+.golden{background:linear-gradient(135deg,rgba(240,180,41,.06),rgba(78,205,196,.06));border:1px solid rgba(240,180,41,.2);border-radius:12px;padding:32px;margin:32px 0;text-align:center}
+.golden p{max-width:600px;margin:8px auto;color:var(--text);font-size:17px;line-height:1.7}
+.golden .emoji{font-size:32px;margin-bottom:12px}
+
+/* Footer */
+footer{text-align:center;padding:40px 20px;color:var(--text3);font-size:13px;border-top:1px solid var(--border);margin-left:260px}
+footer .sig{font-family:var(--font-mono);color:var(--text2);margin-bottom:8px;font-size:14px}
+footer .tags{color:var(--teal-dim);font-family:var(--font-mono);font-size:12px}
+
+/* Mobile */
+@media(max-width:900px){
+  .toc{display:none;position:fixed;top:60px;left:0;right:0;bottom:0;width:100%;z-index:98;background:var(--bg);padding:20px}
+  .toc.open{display:block}
+  main{margin-left:0;padding:80px 20px 80px}
+  footer{margin-left:0}
+  nav .hamburger{display:block}
+  .timeline{flex-direction:column;gap:16px}
+  .timeline::before{display:none}
+  .tl-phase{padding:0 0 0 32px}
+  .tl-dot{left:0;top:4px;transform:none}
+  .section-num{font-size:2rem;min-width:40px}
+  .terminal pre{font-size:11px}
+}
+</style>
+</head>
+<body>
+<div id="progress"></div>
+
+<nav>
+  <div class="logo">
+    <svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="2" y="4" width="24" height="18" rx="4" stroke="#4ecdc4" stroke-width="2"/>
+      <circle cx="9" cy="13" r="1.5" fill="#4ecdc4"/>
+      <circle cx="14" cy="13" r="1.5" fill="#4ecdc4"/>
+      <circle cx="19" cy="13" r="1.5" fill="#4ecdc4"/>
+      <path d="M8 22l4-4h8" stroke="#4ecdc4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    MetaChat
+  </div>
+  <button class="hamburger" onclick="document.querySelector('.toc').classList.toggle('open')" aria-label="Меню">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+  </button>
+</nav>
+
+<aside class="toc" id="toc">
+  <a href="#s1">01 — Что строим</a>
+  <a href="#s2">02 — Функциональные требования</a>
+  <a href="#s3">03 — Нефункциональные требования</a>
+  <a href="#s4">04 — Расчёт нагрузки</a>
+  <a href="#s5">05 — Архитектура</a>
+  <a href="#s6">06 — Схема БД</a>
+  <a href="#s7">07 — Выбор хранилищ</a>
+  <a href="#s8">08 — WebSocket</a>
+  <a href="#s9">09 — AI/ML Pipeline</a>
+  <a href="#s10">10 — Шардирование</a>
+  <a href="#s11">11 — Безопасность</a>
+  <a href="#s12">12 — Фазы запуска</a>
+  <a href="#s13">13 — Стоимость</a>
+  <a href="#s14">14 — Итог</a>
+</aside>
+
+<main>
+<div class="container">
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-logo">
+    <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+      <rect x="4" y="8" width="40" height="28" rx="6" stroke="#4ecdc4" stroke-width="2.5"/>
+      <circle cx="16" cy="22" r="2.5" fill="#4ecdc4"/>
+      <circle cx="24" cy="22" r="2.5" fill="#4ecdc4"/>
+      <circle cx="32" cy="22" r="2.5" fill="#4ecdc4"/>
+      <path d="M14 36l6-6h14" stroke="#4ecdc4" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="40" cy="12" r="3" fill="#f0b429" opacity=".8"/>
+      <circle cx="42" cy="18" r="2" fill="#a371f7" opacity=".6"/>
+      <line x1="40" y1="12" x2="42" y2="18" stroke="#a371f7" stroke-width="1" opacity=".4"/>
+    </svg>
+  </div>
+  <h1>System Design: <span>MetaChat</span></h1>
+  <p class="sub">Платформа для знакомств с AI — микросервисная архитектура на Go, real-time WebSocket, ML-matching на PyTorch</p>
+  <span class="badge">Dead_Do_ЕстЪ | 🏗️ System Design #MetaChat</span>
+</div>
+
+<!-- SECTION 1 -->
+<section id="s1">
+  <div class="section-header">
+    <span class="section-num">01</span>
+    <h2 class="section-title">Что мы вообще строим</h2>
+  </div>
+  <p><strong>MetaChat</strong> — это платформа знакомств. Но не очередной Tinder, где все свайпают как обезьяны с бананами.</p>
+  <p>MetaChat — это система, где AI анализирует совместимость людей, люди общаются в real-time через WebSocket, ML-модели на PyTorch рекомендуют, кто тебе подходит, а ClickHouse хранит аналитику.</p>
+  <p>По сути — <strong>мессенджер + рекомендательная система + аналитика</strong>, обёрнутые в микросервисную архитектуру на Go.</p>
+
+  <h3>Технологический стек</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Компонент</th><th>Технология</th><th>Зачем</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Бэкенд</strong></td><td><span class="badge teal" style="display:inline-block;margin:0">Go</span></td><td>Быстро, параллельно, не жрёт RAM</td></tr>
+        <tr><td><strong>ML/AI</strong></td><td><span class="badge purple" style="display:inline-block;margin:0">Python · PyTorch · HuggingFace</span></td><td>Модели совместимости</td></tr>
+        <tr><td><strong>Основная БД</strong></td><td><span class="badge blue" style="display:inline-block;margin:0">PostgreSQL 16 + pgvector</span></td><td>Профили, сообщения, эмбеддинги</td></tr>
+        <tr><td><strong>Сообщения (скейл)</strong></td><td><span class="badge" style="display:inline-block;margin:0">Cassandra</span></td><td>Когда сообщений станет миллионы</td></tr>
+        <tr><td><strong>Аналитика</strong></td><td><span class="badge amber" style="display:inline-block;margin:0">ClickHouse</span></td><td>Агрегации, метрики, дашборды</td></tr>
+        <tr><td><strong>Очереди</strong></td><td><span class="badge" style="display:inline-block;margin:0">Apache Kafka</span></td><td>Асинхронность, event-driven</td></tr>
+        <tr><td><strong>Кэш/Сессии</strong></td><td><span class="badge green" style="display:inline-block;margin:0">Redis 7</span></td><td>JWT, online-статус, rate limit</td></tr>
+        <tr><td><strong>Оркестрация</strong></td><td><span class="badge" style="display:inline-block;margin:0">Kubernetes</span></td><td>Когда Docker Compose уже не тянет</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- SECTION 2 -->
+<section id="s2">
+  <div class="section-header">
+    <span class="section-num">02</span>
+    <h2 class="section-title">Функциональные требования</h2>
+  </div>
+  <p>Что система <strong>должна уметь делать</strong>:</p>
+
+  <h3>👤 Аутентификация и профили</h3>
+  <div class="terminal">
+    <div class="terminal-bar"><span class="terminal-dot r"></span><span class="terminal-dot y"></span><span class="terminal-dot g"></span><span class="terminal-title">auth-requirements.tree</span></div>
+    <pre>├─ Регистрация (email + пароль)
+├─ Логин → JWT (access + refresh)
+├─ Обновление токена
+├─ Редактирование профиля
+│  ├─ Имя, био, возраст
+│  ├─ Интересы (массив строк)
+│  └─ Аватар
+└─ Просмотр чужого профиля</pre>
+  </div>
+
+  <h3>💬 Обмен сообщениями</h3>
+  <div class="terminal">
+    <div class="terminal-bar"><span class="terminal-dot r"></span><span class="terminal-dot y"></span><span class="terminal-dot g"></span><span class="terminal-title">messaging-requirements.tree</span></div>
+    <pre>├─ Создание диалога (1-на-1)
+├─ Отправка сообщения (текст, в будущем — медиа)
+├─ Получение истории сообщений (пагинация курсором)
+├─ Прочтение сообщений (read receipts)
+├─ Индикатор набора текста (typing)
+└─ WebSocket — push в real-time</pre>
+  </div>
+
+  <h3>🤖 AI-Matching (MVP2+)</h3>
+  <div class="terminal">
+    <div class="terminal-bar"><span class="terminal-dot r"></span><span class="terminal-dot y"></span><span class="terminal-dot g"></span><span class="terminal-title">ml-requirements.tree</span></div>
+    <pre>├─ Генерация эмбеддингов профиля (pgvector)
+├─ Рекомендация совместимых пользователей
+├─ Анализ диалогов для улучшения matching
+└─ ML-pipeline: HuggingFace → PyTorch → pgvector</pre>
+  </div>
+
+  <h3>📊 Аналитика (MVP3+)</h3>
+  <div class="terminal">
+    <div class="terminal-bar"><span class="terminal-dot r"></span><span class="terminal-dot y"></span><span class="terminal-dot g"></span><span class="terminal-title">analytics-requirements.tree</span></div>
+    <pre>├─ DAU/MAU, retention, session length
+├─ Метрики конверсии (match → диалог → встреча)
+├─ A/B тестирование алгоритмов matching
+└─ Дашборды в ClickHouse</pre>
+  </div>
+</section>
+
+<!-- SECTION 3 -->
+<section id="s3">
+  <div class="section-header">
+    <span class="section-num">03</span>
+    <h2 class="section-title">Нефункциональные требования</h2>
+  </div>
+  <p>Что система <strong>должна выдерживать</strong>:</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Требование</th><th>MVP1 (5)</th><th>MVP2 (100)</th><th>MVP3 (1000)</th></tr></thead>
+      <tbody>
+        <tr><td><strong>RPS</strong></td><td>~1</td><td>~50</td><td>~500</td></tr>
+        <tr><td><strong>WS соединений</strong></td><td>5</td><td>100</td><td>1 000</td></tr>
+        <tr><td><strong>Латентность API</strong></td><td>&lt; 200ms</td><td>&lt; 100ms</td><td>&lt; 50ms</td></tr>
+        <tr><td><strong>Доступность</strong></td><td>95%</td><td>99%</td><td>99.9%</td></tr>
+        <tr><td><strong>Хранение сообщений</strong></td><td>PostgreSQL</td><td>PostgreSQL</td><td>Cassandra</td></tr>
+        <tr><td><strong>Потеря данных</strong></td><td>Допустимо</td><td>Минимально</td><td>Недопустимо</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Ключевые принципы</h3>
+  <ul class="check-list">
+    <li class="yes"><strong>Горизонтальное масштабирование</strong> — каждый сервис можно размножить</li>
+    <li class="yes"><strong>Eventual consistency</strong> — для сообщений и статусов это OK</li>
+    <li class="yes"><strong>Graceful degradation</strong> — если ML упал, чат работает</li>
+    <li class="no"><strong>НЕ</strong> real-time consistency для аналитики (ClickHouse ≠ OLTP)</li>
+    <li class="no"><strong>НЕ</strong> single point of failure (кроме MVP1, где это допустимо)</li>
+  </ul>
+</section>
+
+<!-- SECTION 4 -->
+<section id="s4">
+  <div class="section-header">
+    <span class="section-num">04</span>
+    <h2 class="section-title">Расчёт нагрузки</h2>
+  </div>
+  <p>Считаем по-взрослому, даже если сейчас у нас 5 пользователей.</p>
+
+  <h3>MVP3 — 1000 пользователей</h3>
+  <div class="terminal">
+    <div class="terminal-bar"><span class="terminal-dot r"></span><span class="terminal-dot y"></span><span class="terminal-dot g"></span><span class="terminal-title">assumptions.txt</span></div>
+    <pre>├─ DAU = 300 (30% от 1000)
+├─ Средняя сессия = 15 минут
+├─ Сообщений за сессию = 20
+├─ Средний размер сообщения = 200 байт
+└─ Пиковый коэффициент = 3x</pre>
+  </div>
+
+  <div class="calc">
+    <strong>Сообщения в день:</strong><br>
+    300 DAU × 20 сообщений = <span class="result">6 000 сообщений/день</span><br><br>
+    <strong>Пиковый RPS (сообщения):</strong><br>
+    6 000 / 86 400 сек × 3 (пик) ≈ <span class="result">0.2 RPS</span><br><br>
+    <strong>Хранение сообщений (год):</strong><br>
+    6 000 × 365 × 200 байт ≈ <span class="result">438 МБ/год</span><br><br>
+    <strong>WebSocket соединения (пик):</strong><br>
+    300 DAU × 0.5 (одновременно) = <span class="result">150 соединений</span>
+  </div>
+
+  <blockquote>
+    На 1000 пользователей тебе хватит <strong>одного VPS за $20/мес</strong>. Kafka, Cassandra, Kubernetes — это всё для масштаба 100K+. Не городи Kubernetes ради 5 пользователей. Docker Compose — твой друг.
+  </blockquote>
+</section>
+
+<!-- SECTION 5 -->
+<section id="s5">
+  <div class="section-header">
+    <span class="section-num">05</span>
+    <h2 class="section-title">Архитектура — Service Diagram</h2>
+  </div>
+
+  <h3>MVP1 — Docker Compose, всё на одной машине</h3>
+  <div class="terminal">
+    <div class="terminal-bar"><span class="terminal-dot r"></span><span class="terminal-dot y"></span><span class="terminal-dot g"></span><span class="terminal-title">architecture-mvp1.diagram</span></div>
+    <pre>
+                    ┌──────────────────┐
+                    │     Клиент       │
+                    │   (HTTP / WS)    │
+                    └────────┬─────────┘
+                             │
+                    ┌────────▼─────────┐
+                    │  Gateway  :8080  │
+                    │ ─ JWT валидация  │
+                    │ ─ Rate Limiting  │
+                    │ ─ CORS           │
+                    │ ─ WS прокси      │
+                    └───┬──────────┬───┘
+                        │          │
+              ┌─────────▼──┐  ┌───▼───────────┐
+              │ Auth :50051│  │  Messaging     │
+              │            │  │    :50052      │
+              │ ─ Register │  │ ─ Диалоги      │
+              │ ─ Login    │  │ ─ Сообщения    │
+              │ ─ JWT      │  │ ─ WS Hub       │
+              │ ─ Профили  │  │ ─ Read receipts│
+              └──────┬─────┘  └──────┬─────────┘
+                     │               │
+              ┌──────▼───────────────▼──┐  ┌─────────┐
+              │   PostgreSQL  :5432     │  │  Redis   │
+              │ ─ users                 │  │  :6379   │
+              │ ─ conversations         │  │ (кэш,   │
+              │ ─ messages              │  │ сессии)  │
+              │ ─ refresh_tokens        │  └─────────┘
+              └─────────────────────────┘</pre>
+  </div>
+
+  <h3>Поток запроса — регистрация</h3>
+  <div class="terminal">
+    <div class="terminal-bar"><span class="terminal-dot r"></span><span class="terminal-dot y"></span><span class="terminal-dot g"></span><span class="terminal-title">request-flow.sequence</span></div>
+    <pre>
+Клиент
+  │ POST /api/v1/auth/register
+  ▼
+Gateway (:8080)
+  │ Rate limit check → CORS headers
+  │ Proxy → http://auth:50051/register
+  ▼
+Auth Service (:50051)
+  │ Валидация email/password
+  │ bcrypt.GenerateFromPassword()
+  │ INSERT INTO users → PostgreSQL
+  │ Генерация JWT (access + refresh)
+  │ INSERT INTO refresh_tokens
+  ▼
+Gateway → Клиент
+  ← { access_token, refresh_token, user }</pre>
+  </div>
+
+  <h3>Поток WebSocket — отправка сообщения</h3>
+  <div class="terminal">
+    <div class="terminal-bar"><span class="terminal-dot r"></span><span class="terminal-dot y"></span><span class="terminal-dot g"></span><span class="terminal-title">websocket-flow.sequence</span></div>
+    <pre>
+Клиент → WS: connect ws://gateway:8080/api/v1/ws
+              Authorization: Bearer &lt;token&gt;
+
+Gateway → JWT валидация → извлекает userID
+       → WS-прокси → ws://messaging:50052/ws
+
+Messaging Hub:
+  Client.readPump() ← читает WS-сообщения
+  type: "message" → Service.SendMessage()
+    ├─ INSERT INTO messages → PostgreSQL
+    ├─ UPDATE conversations.updated_at
+    └─ Hub.SendToUser(participantIDs) → fan-out
+        └─ Client.writePump() → WS → Клиент
+
+✅ Все участники получают сообщение в real-time</pre>
+  </div>
+
+  <h3>MVP2+ — Добавляется Kafka, ML-сервис</h3>
+  <div class="terminal">
+    <div class="terminal-bar"><span class="terminal-dot r"></span><span class="terminal-dot y"></span><span class="terminal-dot g"></span><span class="terminal-title">architecture-mvp2.diagram</span></div>
+    <pre>
+┌────────────┐    ┌───────────┐    ┌──────────────┐
+│  Gateway   │───▶│   Auth    │    │  ML Service  │
+│   :8080    │    │  :50051   │    │  (Python)    │
+│            │───▶│           │    │  PyTorch     │
+└────────────┘    └───────────┘    │  HuggingFace │
+      │                            └──────┬───────┘
+      │           ┌───────────┐           │
+      └──────────▶│ Messaging │           │
+                  │  :50052   │           │
+                  └─────┬─────┘           │
+                        │                 │
+                  ┌─────▼─────────────────▼───┐
+                  │       Apache Kafka         │
+                  │  ─ messages.sent           │
+                  │  ─ user.activity           │
+                  │  ─ matching.requests       │
+                  └─────┬─────────────────┬───┘
+                        │                 │
+             ┌──────────▼──┐   ┌──────────▼──┐
+             │ PostgreSQL  │   │ ClickHouse   │
+             │ + pgvector  │   │ (аналитика)  │
+             └─────────────┘   └──────────────┘</pre>
+  </div>
+</section>
+
+<!-- SECTION 6 -->
+<section id="s6">
+  <div class="section-header">
+    <span class="section-num">06</span>
+    <h2 class="section-title">Схема базы данных</h2>
+  </div>
+
+  <h3>Entity-Relationship Diagram</h3>
+  <div class="terminal">
+    <div class="terminal-bar"><span class="terminal-dot r"></span><span class="terminal-dot y"></span><span class="terminal-dot g"></span><span class="terminal-title">er-diagram.txt</span></div>
+    <pre>
+┌─────────────────────┐     ┌──────────────────────────┐
+│       users          │     │     conversations         │
+│─────────────────────│     │──────────────────────────│
+│ id          UUID PK │◄─┐  │ id          UUID PK      │
+│ email  VARCHAR(255) │  │  │ created_at  TIMESTAMPTZ  │
+│ password_hash       │  │  │ updated_at  TIMESTAMPTZ  │
+│ name   VARCHAR(100) │  │  └────────────┬─────────────┘
+│ bio          TEXT    │  │              │
+│ age       INTEGER    │  │  ┌───────────▼──────────────┐
+│ interests   TEXT[]   │  │  │ conversation_participants │
+│ avatar_url  VARCHAR  │  │  │─────────────────────────│
+│ created_at TIMESTAMP │  ├─▶│ conversation_id UUID FK  │
+│ updated_at TIMESTAMP │  │  │ user_id         UUID FK  │
+└─────────────────────┘  │  │ PK(conv_id, user_id)     │
+                         │  └──────────────────────────┘
+                         │
+                         │  ┌──────────────────────────┐
+                         │  │        messages            │
+                         │  │──────────────────────────│
+                         ├─▶│ id              UUID PK  │
+                         │  │ conversation_id UUID FK  │
+                         │  │ sender_id       UUID FK  │
+                         │  │ content         TEXT     │
+                         │  │ content_type    VARCHAR  │
+                         │  │ read_at      TIMESTAMPTZ │
+                         │  │ created_at   TIMESTAMPTZ │
+                         │  └──────────────────────────┘
+                         │
+                         │  ┌──────────────────────────┐
+                         │  │     refresh_tokens        │
+                         │  │──────────────────────────│
+                         └─▶│ id          UUID PK      │
+                            │ user_id     UUID FK      │
+                            │ token_hash  VARCHAR(255) │
+                            │ expires_at  TIMESTAMPTZ  │
+                            │ created_at  TIMESTAMPTZ  │
+                            └──────────────────────────┘</pre>
+  </div>
+
+  <h3>Индексы</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Индекс</th><th>Таблица</th><th>Колонки</th></tr></thead>
+      <tbody>
+        <tr><td><code>idx_messages_conversation</code></td><td>messages</td><td>conversation_id, created_at DESC</td></tr>
+        <tr><td><code>idx_refresh_tokens_hash</code></td><td>refresh_tokens</td><td>token_hash</td></tr>
+        <tr><td><code>idx_refresh_tokens_user</code></td><td>refresh_tokens</td><td>user_id</td></tr>
+        <tr><td><code>UNIQUE (implicit)</code></td><td>users</td><td>email</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Почему такая схема</h3>
+  <ul class="check-list">
+    <li class="yes"><code>conversation_participants</code> — many-to-many, поддерживает групповые чаты</li>
+    <li class="yes"><code>messages</code> отдельно — можно пагинировать курсором</li>
+    <li class="yes"><code>refresh_tokens</code> хранит хэш, а не сам токен</li>
+    <li class="yes"><code>TEXT[]</code> для интересов — PostgreSQL нативно</li>
+    <li class="no">НЕ используем JSONB для профиля — строгая схема лучше</li>
+  </ul>
+
+  <h3>SQL миграция</h3>
+  <div class="terminal sql">
+    <div class="terminal-bar"><span class="terminal-dot r"></span><span class="terminal-dot y"></span><span class="terminal-dot g"></span><span class="terminal-title">000001_init.up.sql</span></div>
+    <pre><span class="kw">CREATE EXTENSION IF NOT EXISTS</span> <span class="str">"pgcrypto"</span>;
+
+<span class="kw">CREATE TABLE</span> users (
+    id <span class="fn">UUID</span> <span class="kw">PRIMARY KEY DEFAULT</span> <span class="fn">gen_random_uuid</span>(),
+    email <span class="fn">VARCHAR</span>(255) <span class="kw">UNIQUE NOT NULL</span>,
+    password_hash <span class="fn">VARCHAR</span>(255) <span class="kw">NOT NULL</span>,
+    name <span class="fn">VARCHAR</span>(100) <span class="kw">NOT NULL</span>,
+    bio <span class="fn">TEXT</span> <span class="kw">DEFAULT</span> <span class="str">''</span>,
+    age <span class="fn">INTEGER</span>,
+    interests <span class="fn">TEXT</span>[] <span class="kw">DEFAULT</span> <span class="str">'{}'</span>,
+    avatar_url <span class="fn">VARCHAR</span>(500) <span class="kw">DEFAULT</span> <span class="str">''</span>,
+    created_at <span class="fn">TIMESTAMPTZ</span> <span class="kw">DEFAULT</span> <span class="fn">NOW</span>(),
+    updated_at <span class="fn">TIMESTAMPTZ</span> <span class="kw">DEFAULT</span> <span class="fn">NOW</span>()
+);
+
+<span class="kw">CREATE TABLE</span> conversations (
+    id <span class="fn">UUID</span> <span class="kw">PRIMARY KEY DEFAULT</span> <span class="fn">gen_random_uuid</span>(),
+    created_at <span class="fn">TIMESTAMPTZ</span> <span class="kw">DEFAULT</span> <span class="fn">NOW</span>(),
+    updated_at <span class="fn">TIMESTAMPTZ</span> <span class="kw">DEFAULT</span> <span class="fn">NOW</span>()
+);
+
+<span class="kw">CREATE TABLE</span> conversation_participants (
+    conversation_id <span class="fn">UUID</span> <span class="kw">REFERENCES</span> conversations(id) <span class="kw">ON DELETE CASCADE</span>,
+    user_id <span class="fn">UUID</span> <span class="kw">REFERENCES</span> users(id) <span class="kw">ON DELETE CASCADE</span>,
+    joined_at <span class="fn">TIMESTAMPTZ</span> <span class="kw">DEFAULT</span> <span class="fn">NOW</span>(),
+    <span class="kw">PRIMARY KEY</span> (conversation_id, user_id)
+);
+
+<span class="kw">CREATE TABLE</span> messages (
+    id <span class="fn">UUID</span> <span class="kw">PRIMARY KEY DEFAULT</span> <span class="fn">gen_random_uuid</span>(),
+    conversation_id <span class="fn">UUID</span> <span class="kw">REFERENCES</span> conversations(id) <span class="kw">ON DELETE CASCADE</span>,
+    sender_id <span class="fn">UUID</span> <span class="kw">REFERENCES</span> users(id) <span class="kw">ON DELETE SET NULL</span>,
+    content <span class="fn">TEXT</span> <span class="kw">NOT NULL</span>,
+    content_type <span class="fn">VARCHAR</span>(20) <span class="kw">DEFAULT</span> <span class="str">'text'</span>,
+    read_at <span class="fn">TIMESTAMPTZ</span>,
+    created_at <span class="fn">TIMESTAMPTZ</span> <span class="kw">DEFAULT</span> <span class="fn">NOW</span>()
+);
+
+<span class="kw">CREATE INDEX</span> idx_messages_conversation
+    <span class="kw">ON</span> messages(conversation_id, created_at <span class="kw">DESC</span>);</pre>
+  </div>
+</section>
+
+<!-- SECTION 7 -->
+<section id="s7">
+  <div class="section-header">
+    <span class="section-num">07</span>
+    <h2 class="section-title">Выбор БД и хранилищ</h2>
+  </div>
+
+  <blockquote>
+    Тест одним вопросом Деда: <strong>«А PostgreSQL это не потянет?»</strong><br>
+    Если внятного ответа нет — бери PostgreSQL.
+  </blockquote>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Хранилище</th><th>Когда</th><th>Зачем</th><th>Без него?</th></tr></thead>
+      <tbody>
+        <tr><td><strong>PostgreSQL</strong></td><td>MVP1</td><td>Юзеры, диалоги, сообщения, токены</td><td>Никак, это основа</td></tr>
+        <tr><td><strong>Redis</strong></td><td>MVP1</td><td>Кэш сессий, rate limiting, online</td><td>Можно, но лучше с ним</td></tr>
+        <tr><td><strong>pgvector</strong></td><td>MVP2</td><td>Эмбеддинги для matching</td><td>Без AI нет matching</td></tr>
+        <tr><td><strong>Cassandra</strong></td><td>MVP3</td><td>Сообщения при 100K+ юзеров</td><td>PostgreSQL упрётся в запись</td></tr>
+        <tr><td><strong>ClickHouse</strong></td><td>MVP3</td><td>Аналитика, метрики, A/B</td><td>Можно SQL, но медленно</td></tr>
+        <tr><td><strong>Kafka</strong></td><td>MVP2</td><td>Асинхронные события</td><td>Синхронные вызовы</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>PostgreSQL: главная лошадка</h3>
+  <div class="calc">
+    Сообщений в день (1000 юзеров): <span class="result">6 000</span><br>
+    Сообщений в год: <span class="result">2 190 000</span><br>
+    Размер данных (год): <span class="result">~500 МБ</span><br>
+    Один SELECT с индексом: <span class="result">&lt; 1 мс</span><br>
+    Максимальный размер таблицы: <span class="result">32 ТБ</span>
+  </div>
+  <p>PostgreSQL при 1000 пользователях — это как нанимать грузовик, чтобы перевезти один чемодан. Но грузовик надёжный.</p>
+
+  <h3>Когда PostgreSQL перестанет хватать</h3>
+  <div class="terminal">
+    <div class="terminal-bar"><span class="terminal-dot r"></span><span class="terminal-dot y"></span><span class="terminal-dot g"></span><span class="terminal-title">scaling-triggers.txt</span></div>
+    <pre>
+Сигнал #1: Запись сообщений > 10 000 RPS
+           → Подключаем Cassandra (write-optimized)
+
+Сигнал #2: Аналитические запросы тормозят OLTP
+           → Подключаем ClickHouse (отдельный read-path)
+
+Сигнал #3: Сервисы начинают ждать друг друга
+           → Подключаем Kafka (async event bus)</pre>
+  </div>
+</section>
+
+<!-- SECTION 8 -->
+<section id="s8">
+  <div class="section-header">
+    <span class="section-num">08</span>
+    <h2 class="section-title">WebSocket — real-time</h2>
+  </div>
+
+  <h3>Архитектура WebSocket Hub</h3>
+  <div class="terminal">
+    <div class="terminal-bar"><span class="terminal-dot r"></span><span class="terminal-dot y"></span><span class="terminal-dot g"></span><span class="terminal-title">ws-hub.diagram</span></div>
+    <pre>
+              Gateway (WS Proxy)
+                   │
+      ┌────────────▼────────────┐
+      │   Messaging Service      │
+      │                          │
+      │   ┌──────────────────┐   │
+      │   │       Hub        │   │
+      │   │   (goroutine)    │   │
+      │   │                  │   │
+      │   │   clients map:   │   │
+      │   │   userID → []*Cl │   │
+      │   │                  │   │
+      │   │   Register()     │   │
+      │   │   Unregister()   │   │
+      │   │   SendToUser()   │   │
+      │   └──────────────────┘   │
+      │                          │
+      │   ┌──────┐  ┌──────┐    │
+      │   │Cli A │  │Cli B │ …  │
+      │   │read  │  │read  │    │
+      │   │Pump()│  │Pump()│    │
+      │   │write │  │write │    │
+      │   │Pump()│  │Pump()│    │
+      │   └──────┘  └──────┘    │
+      └──────────────────────────┘</pre>
+  </div>
+
+  <h3>Типы событий</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Type</th><th>Направление</th><th>Payload</th><th>Описание</th></tr></thead>
+      <tbody>
+        <tr><td><code>message</code></td><td>клиент → сервер</td><td><code>{conversation_id, content}</code></td><td>Отправка</td></tr>
+        <tr><td><code>message</code></td><td>сервер → клиент</td><td><code>{id, sender_id, content, ...}</code></td><td>Получение</td></tr>
+        <tr><td><code>typing</code></td><td>оба</td><td><code>{conversation_id, is_typing}</code></td><td>Набор текста</td></tr>
+        <tr><td><code>read_receipt</code></td><td>сервер → клиент</td><td><code>{message_id, user_id}</code></td><td>Прочтение</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Fan-out: доставка сообщения</h3>
+  <div class="terminal">
+    <div class="terminal-bar"><span class="terminal-dot r"></span><span class="terminal-dot y"></span><span class="terminal-dot g"></span><span class="terminal-title">fan-out.sequence</span></div>
+    <pre>
+User A отправляет сообщение
+      │
+      ▼
+readPump() парсит JSON
+      │
+      ▼
+Service.SendMessage()
+├─ INSERT INTO messages (PostgreSQL)
+├─ UPDATE conversations.updated_at
+└─ Список участников → Hub.SendToUser()
+    ├─ userA → send chan → writePump() → WS
+    └─ userB → send chan → writePump() → WS</pre>
+  </div>
+  <p><strong>Ограничение MVP1:</strong> Hub в памяти одного процесса. При масштабировании — Redis Pub/Sub для кросс-инстансного fan-out.</p>
+</section>
+
+<!-- SECTION 9 -->
+<section id="s9">
+  <div class="section-header">
+    <span class="section-num">09</span>
+    <h2 class="section-title">AI/ML Pipeline</h2>
+  </div>
+
+  <h3>MVP2: Базовый matching</h3>
+  <div class="terminal">
+    <div class="terminal-bar"><span class="terminal-dot r"></span><span class="terminal-dot y"></span><span class="terminal-dot g"></span><span class="terminal-title">ml-pipeline.diagram</span></div>
+    <pre>
+┌─────────────┐    ┌──────────────────┐    ┌─────────────┐
+│ User Profile │───▶│  HuggingFace     │───▶│  pgvector    │
+│ (bio, age,   │    │  Transformers    │    │ (embeddings) │
+│  interests)  │    │  sentence-bert   │    │              │
+└─────────────┘    └──────────────────┘    └──────┬──────┘
+                                                   │
+                        ┌──────────────────────────▼──┐
+                        │  Cosine Similarity Search    │
+                        │  ORDER BY embedding <=>      │
+                        │    target_embedding           │
+                        │  LIMIT 10                     │
+                        └──────────────────────────────┘</pre>
+  </div>
+
+  <h3>Пример запроса (pgvector)</h3>
+  <div class="terminal sql">
+    <div class="terminal-bar"><span class="terminal-dot r"></span><span class="terminal-dot y"></span><span class="terminal-dot g"></span><span class="terminal-title">matching-query.sql</span></div>
+    <pre><span class="kw">SELECT</span> id, name, bio,
+       1 - (embedding <=> $1) <span class="kw">AS</span> compatibility_score
+<span class="kw">FROM</span> users
+<span class="kw">WHERE</span> id != $2
+  <span class="kw">AND</span> age <span class="kw">BETWEEN</span> $3 <span class="kw">AND</span> $4
+<span class="kw">ORDER BY</span> embedding <=> $1
+<span class="kw">LIMIT</span> 10;</pre>
+  </div>
+
+  <h3>MVP3: Дополнительные сигналы</h3>
+  <div class="terminal">
+    <div class="terminal-bar"><span class="terminal-dot r"></span><span class="terminal-dot y"></span><span class="terminal-dot g"></span><span class="terminal-title">advanced-signals.tree</span></div>
+    <pre>├─ История переписок (NLP-анализ тональности)
+├─ Время ответа (заинтересованность)
+├─ Длина сообщений (вовлечённость)
+├─ Общие темы (topic modeling)
+└─ Обратная связь (понравился/не понравился)</pre>
+  </div>
+</section>
+
+<!-- SECTION 10 -->
+<section id="s10">
+  <div class="section-header">
+    <span class="section-num">10</span>
+    <h2 class="section-title">Шардирование и масштабирование</h2>
+  </div>
+
+  <p>На 1000 пользователей шардирование <strong>не нужно</strong>. Точка.</p>
+  <p>Но когда понадобится (100K+):</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Таблица</th><th>Шард-ключ</th><th>Почему</th><th>Минус</th></tr></thead>
+      <tbody>
+        <tr><td><strong>messages</strong></td><td><code>conversation_id</code></td><td>Все сообщения диалога на одном шарде</td><td>Горячие диалоги → hotspot</td></tr>
+        <tr><td><strong>users</strong></td><td><code>user_id</code> (UUID)</td><td>UUID рандомный — балансировка из коробки</td><td>Поиск по email → lookup таблица</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Горизонтальное масштабирование</h3>
+  <div class="terminal">
+    <div class="terminal-bar"><span class="terminal-dot r"></span><span class="terminal-dot y"></span><span class="terminal-dot g"></span><span class="terminal-title">scaling.plan</span></div>
+    <pre>
+MVP1 (5 юзеров):
+  Gateway ×1 → Auth ×1 → Messaging ×1
+  PostgreSQL ×1, Redis ×1
+  Всё на одном VPS
+
+MVP2 (100 юзеров):
+  Gateway ×2 (Load Balancer)
+  Auth ×2, Messaging ×2
+  PostgreSQL ×1 (primary + read replica)
+  Redis ×1, Kafka ×1, ML Service ×1 (GPU)
+
+MVP3 (1000 юзеров):
+  Gateway ×3 (Kubernetes Ingress)
+  Auth ×3, Messaging ×3
+  PostgreSQL ×1 primary + 2 replicas
+  Redis Cluster ×3, Kafka ×3 brokers
+  Cassandra ×3, ClickHouse ×2, ML ×2 (GPU)</pre>
+  </div>
+
+  <h3>WebSocket и масштабирование</h3>
+  <div class="card glow">
+    <h4>Проблема:</h4>
+    <p>User A подключён к Messaging-1, User B к Messaging-2. Сообщение не дойдёт — Hub в памяти.</p>
+    <h4>Решение (MVP2+):</h4>
+    <p>Redis Pub/Sub как транспорт между инстансами.</p>
+    <div class="terminal" style="margin-top:12px">
+      <pre style="padding:14px;font-size:12px">Messaging-1: Hub.SendToUser("B") → не нашёл
+  → PUBLISH redis "user:B" msg
+Messaging-2: SUBSCRIBE redis "user:B" → получил
+  → Hub.SendToUser("B") → ✅</pre>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 11 -->
+<section id="s11">
+  <div class="section-header">
+    <span class="section-num">11</span>
+    <h2 class="section-title">Безопасность</h2>
+  </div>
+
+  <h3>Аутентификация — JWT</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Параметр</th><th>Значение</th><th>Комментарий</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Алгоритм</strong></td><td><code>HS256</code></td><td>Один секрет, для микросервисов за Gateway — достаточно</td></tr>
+        <tr><td><strong>Access Token TTL</strong></td><td>15 минут</td><td>Короткий — минимизация ущерба при утечке</td></tr>
+        <tr><td><strong>Refresh Token TTL</strong></td><td>30 дней</td><td>Хранится как HMAC-SHA256 хэш в PostgreSQL</td></tr>
+        <tr><td><strong>Ротация</strong></td><td>При refresh</td><td>Старый токен удаляется</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Пароли — bcrypt</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Свойство</th><th>Значение</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Алгоритм</strong></td><td><code>bcrypt (cost = 10)</code></td></tr>
+        <tr><td><strong>Радужные таблицы</strong></td><td>Бесполезны (salt встроен)</td></tr>
+        <tr><td><strong>Brute force</strong></td><td>~100 мс на хэш (медленно = хорошо)</td></tr>
+        <tr><td><strong>Хранение</strong></td><td>Только хэш, пароль нигде не сохраняется</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Rate Limiting — Token Bucket</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Параметр</th><th>Значение</th></tr></thead>
+      <tbody>
+        <tr><td><strong>RPS</strong></td><td>10 запросов/сек на клиента</td></tr>
+        <tr><td><strong>Burst</strong></td><td>20 (всплеск)</td></tr>
+        <tr><td><strong>Ключ</strong></td><td>user_id (авторизован) или IP</td></tr>
+        <tr><td><strong>Очистка</strong></td><td>Каждые 5 минут</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Что нужно для продакшена</h3>
+  <ul class="check-list">
+    <li class="no"><strong>Сейчас:</strong> CORS Allow-Origin = * (открыто)</li>
+    <li class="no"><strong>Сейчас:</strong> HTTPS отсутствует</li>
+    <li class="no"><strong>Сейчас:</strong> Нет фильтрации контента сообщений</li>
+    <li class="yes"><strong>Нужно:</strong> CORS ограничить домены</li>
+    <li class="yes"><strong>Нужно:</strong> HTTPS через Nginx + Let's Encrypt</li>
+    <li class="yes"><strong>Нужно:</strong> Sanitize HTML в сообщениях</li>
+    <li class="yes"><strong>Нужно:</strong> Audit log + GDPR (право на удаление)</li>
+  </ul>
+</section>
+
+<!-- SECTION 12 -->
+<section id="s12">
+  <div class="section-header">
+    <span class="section-num">12</span>
+    <h2 class="section-title">Фазы запуска</h2>
+  </div>
+
+  <div class="timeline">
+    <div class="tl-phase active">
+      <div class="tl-dot"></div>
+      <h4>MVP1</h4>
+      <p>5 пользователей</p>
+      <div class="tl-card done">
+        <ul>
+          <li>✅ Регистрация / Логин / JWT</li>
+          <li>✅ Профили (CRUD)</li>
+          <li>✅ Диалоги и сообщения</li>
+          <li>✅ WebSocket (real-time)</li>
+          <li>✅ Read receipts + Typing</li>
+          <li>✅ Docker Compose</li>
+        </ul>
+        <p style="margin-top:8px;font-size:12px;color:var(--teal)"><strong>~$20/мес · 2-3 недели</strong></p>
+      </div>
+    </div>
+    <div class="tl-phase">
+      <div class="tl-dot"></div>
+      <h4>MVP2</h4>
+      <p>100 пользователей</p>
+      <div class="tl-card">
+        <ul>
+          <li>⬜ AI-matching (pgvector)</li>
+          <li>⬜ Kafka event-driven</li>
+          <li>⬜ Push-уведомления</li>
+          <li>⬜ Медиа-сообщения</li>
+          <li>⬜ Redis Pub/Sub</li>
+          <li>⬜ Мониторинг</li>
+          <li>⬜ CI/CD pipeline</li>
+        </ul>
+        <p style="margin-top:8px;font-size:12px;color:var(--amber)"><strong>~$200-500/мес · 4-6 недель</strong></p>
+      </div>
+    </div>
+    <div class="tl-phase">
+      <div class="tl-dot"></div>
+      <h4>MVP3</h4>
+      <p>1000 пользователей</p>
+      <div class="tl-card">
+        <ul>
+          <li>⬜ Cassandra (сообщения)</li>
+          <li>⬜ ClickHouse (аналитика)</li>
+          <li>⬜ Kubernetes</li>
+          <li>⬜ A/B тестирование</li>
+          <li>⬜ NLP / sentiment</li>
+          <li>⬜ Модерация</li>
+          <li>⬜ Admin panel</li>
+        </ul>
+        <p style="margin-top:8px;font-size:12px;color:var(--red)"><strong>~$1000-2000/мес · 8-12 недель</strong></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 13 -->
+<section id="s13">
+  <div class="section-header">
+    <span class="section-num">13</span>
+    <h2 class="section-title">Расчёт стоимости</h2>
+  </div>
+
+  <h3>Инфраструктура (ежемесячно)</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Статья</th><th>MVP1</th><th>MVP2</th><th>MVP3</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Серверы (VPS/K8s)</strong></td>
+          <td>$10-20<div class="cost-bar-wrap"><div class="cost-bar" style="width:10%"></div></div></td>
+          <td>$40-150<div class="cost-bar-wrap"><div class="cost-bar" style="width:25%"></div></div></td>
+          <td>$200-400<div class="cost-bar-wrap"><div class="cost-bar" style="width:50%"></div></div></td>
+        </tr>
+        <tr>
+          <td><strong>Базы данных</strong></td>
+          <td>$0 (в Docker)</td>
+          <td>$25-40<div class="cost-bar-wrap"><div class="cost-bar" style="width:15%"></div></div></td>
+          <td>$200-330<div class="cost-bar-wrap"><div class="cost-bar" style="width:45%"></div></div></td>
+        </tr>
+        <tr>
+          <td><strong>GPU (ML)</strong></td>
+          <td>$0</td>
+          <td>$50-150<div class="cost-bar-wrap"><div class="cost-bar" style="width:20%"></div></div></td>
+          <td>$150-300<div class="cost-bar-wrap"><div class="cost-bar" style="width:40%"></div></div></td>
+        </tr>
+        <tr>
+          <td><strong>Kafka / Очереди</strong></td>
+          <td>$0</td>
+          <td>$0 (self-hosted)</td>
+          <td>$50-100<div class="cost-bar-wrap"><div class="cost-bar" style="width:15%"></div></div></td>
+        </tr>
+        <tr>
+          <td><strong>S3 + CDN + мониторинг</strong></td>
+          <td>$1</td>
+          <td>$5-30<div class="cost-bar-wrap"><div class="cost-bar" style="width:8%"></div></div></td>
+          <td>$50<div class="cost-bar-wrap"><div class="cost-bar" style="width:10%"></div></div></td>
+        </tr>
+        <tr style="background:var(--teal-glow)">
+          <td><strong style="color:var(--teal)">ИТОГО</strong></td>
+          <td><strong style="color:var(--teal)">~$20/мес</strong></td>
+          <td><strong style="color:var(--teal)">~$200-400/мес</strong></td>
+          <td><strong style="color:var(--teal)">~$800-1500/мес</strong></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Разработка (единоразово)</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Фаза</th><th>Человеко-часы</th><th>Стоимость ($50/ч)</th></tr></thead>
+      <tbody>
+        <tr><td><strong>MVP1</strong></td><td>80-120 ч</td><td>$4 000-6 000<div class="cost-bar-wrap"><div class="cost-bar" style="width:15%"></div></div></td></tr>
+        <tr><td><strong>MVP2</strong></td><td>200-300 ч</td><td>$10 000-15 000<div class="cost-bar-wrap"><div class="cost-bar" style="width:40%"></div></div></td></tr>
+        <tr><td><strong>MVP3</strong></td><td>300-500 ч</td><td>$15 000-25 000<div class="cost-bar-wrap"><div class="cost-bar" style="width:65%"></div></div></td></tr>
+        <tr style="background:var(--teal-glow)"><td><strong style="color:var(--teal)">ИТОГО</strong></td><td><strong>600-900 ч</strong></td><td><strong style="color:var(--teal)">$29 000-46 000</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- SECTION 14 -->
+<section id="s14">
+  <div class="section-header">
+    <span class="section-num">14</span>
+    <h2 class="section-title">Итог</h2>
+  </div>
+
+  <div class="golden">
+    <div class="emoji">🥃</div>
+    <h3 style="color:var(--amber);margin-bottom:16px">Золотое правило Деда</h3>
+    <p>Технология нейтральна.</p>
+    <p>Kubernetes не спасёт плохой продукт.</p>
+    <p>PostgreSQL не сломается от 5 пользователей.</p>
+    <p>AI-matching бесполезен, если людям не о чём говорить.</p>
+  </div>
+
+  <p><strong>MetaChat MVP1</strong> — это 3 микросервиса на Go (~3 200 строк кода), PostgreSQL + Redis, Docker Compose для запуска одной командой, WebSocket для real-time, JWT для безопасности.</p>
+  <p>Это работает. Это запускается. Это можно показать инвестору.</p>
+  <p>Всё остальное — Kafka, Cassandra, ClickHouse, PyTorch — подключается, когда в этом появляется <strong>реальная необходимость</strong>, а не когда хочется нарисовать красивую схему на доске.</p>
+
+  <blockquote>
+    Не городите Kubernetes ради пяти пользователей.<br>
+    Не запускайте Kafka, когда у вас 6 000 сообщений в день.<br>
+    Не тренируйте ML-модель, пока нет данных.<br><br>
+    <strong>Начните с простого. Усложняйте, когда простое перестанет работать.</strong>
+  </blockquote>
+</section>
+
+</div><!-- container -->
+</main>
+
+<footer>
+  <div class="sig">Dead_Do_ЕстЪ | 🏗️ System Design #MetaChat</div>
+  <div class="tags">#MetaChat #SystemDesign #Go #PostgreSQL #WebSocket #DeadDoЕстЪ</div>
+</footer>
+
+<script>
+// Progress bar
+const progress = document.getElementById('progress');
+window.addEventListener('scroll', () => {
+  const h = document.documentElement;
+  const pct = (h.scrollTop / (h.scrollHeight - h.clientHeight)) * 100;
+  progress.style.width = pct + '%';
+});
+
+// Scroll spy for TOC
+const sections = document.querySelectorAll('section[id]');
+const tocLinks = document.querySelectorAll('.toc a');
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      tocLinks.forEach(a => a.classList.remove('active'));
+      const active = document.querySelector('.toc a[href="#' + e.target.id + '"]');
+      if (active) active.classList.add('active');
+    }
+  });
+}, { rootMargin: '-80px 0px -60% 0px', threshold: 0 });
+sections.forEach(s => observer.observe(s));
+
+// Close mobile TOC on link click
+tocLinks.forEach(a => a.addEventListener('click', () => {
+  document.querySelector('.toc').classList.remove('open');
+}));
+</script>
+</body>
+</html>
