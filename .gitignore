@@ -23,12 +23,18 @@ go.work.sum
 *.swo
 *~
 
+# Vendor
+vendor/
+
 # Environment
 .env
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Logs
+*.log
 
 # Docker volumes
 data/

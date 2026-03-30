@@ -3,6 +3,7 @@ version: '3.8'
 services:
   postgres:
     image: postgres:16-alpine
+    env_file: .env
     environment:
       POSTGRES_USER: metachat
       POSTGRES_PASSWORD: metachat_secret
@@ -49,6 +50,7 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+    env_file: .env
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
@@ -61,6 +63,12 @@ services:
       AUTH_PORT: "50051"
     ports:
       - "50051:50051"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:50051/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   messaging:
     build:
@@ -71,6 +79,7 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+    env_file: .env
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
@@ -82,14 +91,23 @@ services:
       MESSAGING_PORT: "50052"
     ports:
       - "50052:50052"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:50052/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   gateway:
     build:
       context: .
       dockerfile: Dockerfile.gateway
     depends_on:
-      - auth
-      - messaging
+      auth:
+        condition: service_healthy
+      messaging:
+        condition: service_healthy
+    env_file: .env
     environment:
       GATEWAY_PORT: "8080"
       AUTH_SERVICE_URL: http://auth:50051
